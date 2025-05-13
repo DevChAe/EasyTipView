@@ -24,7 +24,7 @@
 #if canImport(UIKit)
 import UIKit
 
-public protocol EasyTipViewDelegate : class {
+public protocol EasyTipViewDelegate : AnyObject {
     func easyTipViewDidTap(_ tipView: EasyTipView)
     func easyTipViewDidDismiss(_ tipView : EasyTipView)
 }
@@ -174,9 +174,29 @@ public extension EasyTipView {
         }
         
         if animated {
-            UIView.animate(withDuration: preferences.animating.showDuration, delay: 0, usingSpringWithDamping: damping, initialSpringVelocity: velocity, options: [.curveEaseInOut], animations: animations, completion: nil)
+            if let damping = preferences.animating.springDamping,
+               let velocity = preferences.animating.springVelocity {
+                UIView.animate(withDuration: preferences.animating.showDuration,
+                               delay: 0,
+                               usingSpringWithDamping: damping,
+                               initialSpringVelocity: velocity,
+                               options: preferences.animating.animationOptions,
+                               animations: animations,
+                               completion: { [weak self] _ in
+                    self?.startVerticalShake()
+                })
+            } else {
+                UIView.animate(withDuration: preferences.animating.showDuration,
+                               delay: 0,
+                               options: preferences.animating.animationOptions,
+                               animations: animations,
+                               completion: { [weak self] _ in
+                    self?.startVerticalShake()
+                })
+            }
         }else{
             animations()
+            self.startVerticalShake()
         }
     }
     
@@ -185,20 +205,63 @@ public extension EasyTipView {
      
      - parameter completion: Completion block to be executed after the EasyTipView is dismissed.
      */
-    func dismiss(withCompletion completion: (() -> ())? = nil){
+    func dismiss(animated: Bool = true, completion: (() -> ())? = nil){
         
         let damping = preferences.animating.springDamping
         let velocity = preferences.animating.springVelocity
         
-        UIView.animate(withDuration: preferences.animating.dismissDuration, delay: 0, usingSpringWithDamping: damping, initialSpringVelocity: velocity, options: [.curveEaseInOut], animations: { 
-            self.transform = self.preferences.animating.dismissTransform
-            self.alpha = self.preferences.animating.dismissFinalAlpha
-        }) { (finished) -> Void in
-            completion?()
-            self.delegate?.easyTipViewDidDismiss(self)
-            self.removeFromSuperview()
-            self.transform = CGAffineTransform.identity
+        if let damping = preferences.animating.springDamping,
+           let velocity = preferences.animating.springVelocity {
+            UIView.animate(withDuration: animated ? preferences.animating.dismissDuration : 0,
+                           delay: 0,
+                           usingSpringWithDamping: damping,
+                           initialSpringVelocity: velocity,
+                           options: preferences.animating.animationOptions,
+                           animations: {
+                self.transform = self.preferences.animating.dismissTransform
+                self.alpha = self.preferences.animating.dismissFinalAlpha
+            }) { (finished) -> Void in
+                self.delegate?.easyTipViewDidDismiss(self)
+                self.removeFromSuperview()
+                self.transform = CGAffineTransform.identity
+                completion?()
+            }
+        } else {
+            UIView.animate(withDuration: animated ? preferences.animating.dismissDuration : 0,
+                           delay: 0,
+                           options: preferences.animating.animationOptions,
+                           animations: {
+                self.transform = self.preferences.animating.dismissTransform
+                self.alpha = self.preferences.animating.dismissFinalAlpha
+            }) { (finished) -> Void in
+                self.delegate?.easyTipViewDidDismiss(self)
+                self.removeFromSuperview()
+                self.transform = CGAffineTransform.identity
+                completion?()
+            }
         }
+    }
+    
+    // EasyTipView Vertical Shake Start
+    func startVerticalShake(verticalShakeOffset: CGFloat? = nil) {
+        if let verticalShakeOffset {
+            preferences.animating.verticalShakeOffset = verticalShakeOffset
+        }
+        
+        if preferences.isVerticalShake {
+            let layerAnimation = CABasicAnimation(keyPath: "position")
+            layerAnimation.fromValue = self.layer.position
+            layerAnimation.toValue = CGPoint(x: self.layer.position.x, y: self.layer.position.y + preferences.animating.verticalShakeOffset)
+            layerAnimation.duration = preferences.animating.verticalShakeDuration
+            layerAnimation.repeatCount = .infinity
+            layerAnimation.autoreverses = true
+            self.layer.add(layerAnimation, forKey: "position")
+        }
+    }
+    
+    // EasyTipView Vertical Shake Stop
+    func stopVerticalShake() {
+        self.layer.removeAnimation(forKey: "position")
     }
 }
 
@@ -221,11 +284,11 @@ open class EasyTipView: UIView {
     public struct Preferences {
         
         public struct Drawing {
-            public var cornerRadius        = CGFloat(5)
-            public var arrowHeight         = CGFloat(5)
+            public var cornerRadius        = CGFloat(6)
+            public var arrowHeight         = CGFloat(6)
             public var arrowWidth          = CGFloat(10)
             public var foregroundColor     = UIColor.white
-            public var backgroundColor     = UIColor.red
+            public var backgroundColor     = UIColor(red: 255.0/255.0, green: 155.0/255.0, blue: 0.0/255.0, alpha: 1)
             public var arrowPosition       = ArrowPosition.any
             public var textAlignment       = NSTextAlignment.center
             public var borderWidth         = CGFloat(0)
@@ -238,22 +301,28 @@ open class EasyTipView: UIView {
         }
         
         public struct Positioning {
-            public var bubbleInsets         = UIEdgeInsets(top: 1.0, left: 1.0, bottom: 1.0, right: 1.0)
-            public var contentInsets        = UIEdgeInsets(top: 10.0, left: 10.0, bottom: 10.0, right: 10.0)
+            public var bubbleInsets         = UIEdgeInsets(top: 4.0, left: 10.0, bottom: 4.0, right: 10.0)
+            public var contentInsets        = UIEdgeInsets(top: 5.0, left: 8.0, bottom: 5.0, right: 8.0)
             public var maxWidth             = CGFloat(200)
+            public var ignoreAdjustHorizontalFrame  = false
+            public var ignoreAdjustVerticalFrame    = false
+            public var ignoreFrameValid             = false
         }
         
         public struct Animating {
             public var dismissTransform     = CGAffineTransform(scaleX: 0.1, y: 0.1)
             public var showInitialTransform = CGAffineTransform(scaleX: 0, y: 0)
             public var showFinalTransform   = CGAffineTransform.identity
-            public var springDamping        = CGFloat(0.7)
-            public var springVelocity       = CGFloat(0.7)
+            public var springDamping: CGFloat?  = CGFloat(0.7)
+            public var springVelocity: CGFloat? = CGFloat(0.7)
             public var showInitialAlpha     = CGFloat(0)
             public var dismissFinalAlpha    = CGFloat(0)
             public var showDuration         = 0.7
             public var dismissDuration      = 0.7
             public var dismissOnTap         = true
+            public var verticalShakeOffset      = CGFloat(0)
+            public var verticalShakeDuration    = CGFloat(0.4)
+            public var animationOptions: AnimationOptions = [.curveEaseInOut]
         }
         
         public var drawing      = Drawing()
@@ -265,6 +334,10 @@ open class EasyTipView: UIView {
         
         public var hasShadow : Bool {
             return drawing.shadowOpacity > 0 && drawing.shadowColor != UIColor.clear
+        }
+        
+        public var isVerticalShake : Bool {
+            return animating.verticalShakeOffset != 0
         }
         
         public init() {}
@@ -294,7 +367,7 @@ open class EasyTipView: UIView {
     override open var backgroundColor: UIColor? {
         didSet {
             guard let color = backgroundColor
-                  , color != UIColor.clear else {return}  
+                  , color != UIColor.clear else {return}
             
             preferences.drawing.backgroundColor = color
             backgroundColor = UIColor.clear
@@ -461,17 +534,21 @@ open class EasyTipView: UIView {
     fileprivate func adjustFrame(_ frame: inout CGRect, forSuperviewFrame superviewFrame: CGRect) {
         
         // adjust horizontally
-        if frame.x < 0 {
-            frame.x =  0
-        } else if frame.maxX > superviewFrame.width {
-            frame.x = superviewFrame.width - frame.width
+        if preferences.positioning.ignoreAdjustHorizontalFrame == false {
+            if frame.x < 0 {
+                frame.x =  0
+            } else if frame.maxX > superviewFrame.width {
+                frame.x = superviewFrame.width - frame.width
+            }
         }
         
         //adjust vertically
-        if frame.y < 0 {
-            frame.y = 0
-        } else if frame.maxY > superviewFrame.maxY {
-            frame.y = superviewFrame.height - frame.height
+        if preferences.positioning.ignoreAdjustVerticalFrame == false {
+            if frame.y < 0 {
+                frame.y = 0
+            } else if frame.maxY > superviewFrame.maxY {
+                frame.y = superviewFrame.height - frame.height
+            }
         }
     }
     
@@ -494,19 +571,21 @@ open class EasyTipView: UIView {
         
         var frame = computeFrame(arrowPosition: position, refViewFrame: refViewFrame, superviewFrame: superviewFrame)
         
-        if !isFrameValid(frame, forRefViewFrame: refViewFrame, withinSuperviewFrame: superviewFrame) {
-            for value in ArrowPosition.allValues where value != position {
-                let newFrame = computeFrame(arrowPosition: value, refViewFrame: refViewFrame, superviewFrame: superviewFrame)
-                if isFrameValid(newFrame, forRefViewFrame: refViewFrame, withinSuperviewFrame: superviewFrame) {
-                    
-                    if position != .any {
-                        print("[EasyTipView - Info] The arrow position you chose <\(position)> could not be applied. Instead, position <\(value)> has been applied! Please specify position <\(ArrowPosition.any)> if you want EasyTipView to choose a position for you.")
+        if preferences.positioning.ignoreFrameValid == false {
+            if !isFrameValid(frame, forRefViewFrame: refViewFrame, withinSuperviewFrame: superviewFrame) {
+                for value in ArrowPosition.allValues where value != position {
+                    let newFrame = computeFrame(arrowPosition: value, refViewFrame: refViewFrame, superviewFrame: superviewFrame)
+                    if isFrameValid(newFrame, forRefViewFrame: refViewFrame, withinSuperviewFrame: superviewFrame) {
+                        
+                        if position != .any {
+                            print("[EasyTipView - Info] The arrow position you chose <\(position)> could not be applied. Instead, position <\(value)> has been applied! Please specify position <\(ArrowPosition.any)> if you want EasyTipView to choose a position for you.")
+                        }
+                        
+                        frame = newFrame
+                        position = value
+                        preferences.drawing.arrowPosition = value
+                        break
                     }
-                    
-                    frame = newFrame
-                    position = value
-                    preferences.drawing.arrowPosition = value
-                    break
                 }
             }
         }
